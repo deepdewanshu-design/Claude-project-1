@@ -4,7 +4,8 @@ __pycache__/
 .venv/
 venv/
 *.log
-# runtime trade journal / learned state
+# runtime trade journal / learned state / news cache
 journal/
+cache/
 # never commit real credentials
 config.local.yaml

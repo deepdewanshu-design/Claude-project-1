@@ -14,6 +14,7 @@ from .indicators import atr
 from .journal import TradeJournal
 from .learning import LearningEngine
 from .mt5_client import MT5Client
+from .news import NewsCalendar, NewsFilter
 from .risk import RiskManager, SymbolSpec
 from .strategy import ScalpStrategy, Signal
 from .trade_manager import TradeManager
@@ -30,6 +31,11 @@ class ScalpingBot:
         self.manager = TradeManager(cfg.management, self.client)
         self._last_candle_time: Dict[str, pd.Timestamp] = {}
         self._session_windows = cfg.session.windows()
+
+        self.news: Optional[NewsFilter] = None
+        if cfg.news.enabled:
+            calendar = NewsCalendar(cfg.news, cfg.news.cache_dir)
+            self.news = NewsFilter(cfg.news, calendar)
 
         self.journal: Optional[TradeJournal] = None
         self.learning: Optional[LearningEngine] = None
@@ -91,6 +97,19 @@ class ScalpingBot:
         if self.friday_flat():
             self.manager.flatten_all("Friday flat time")
             return
+
+        # 0b) news: keep the calendar fresh, get flat before releases
+        if self.news is not None:
+            self.news.calendar.maybe_refresh()
+            for pos in self.client.my_positions():
+                event = self.news.should_flatten(pos.symbol)
+                if event is not None:
+                    log.info(
+                        "Closing %s #%s ahead of %s %s (%s) at %s",
+                        pos.symbol, pos.ticket, event.currency, event.title,
+                        event.impact, event.time.strftime("%H:%M UTC"),
+                    )
+                    self.client.close_position(pos)
 
         # 1) manage what's already open (every poll, regardless of session)
         for pos in self.client.my_positions():
@@ -155,6 +174,13 @@ class ScalpingBot:
         if signal is None:
             return
         log.info("Signal: %s %s (%s)", signal.direction.upper(), symbol, signal.note)
+
+        # ---- news gate ---------------------------------------------------------
+        if self.news is not None:
+            ok, why = self.news.check_entry(symbol)
+            if not ok:
+                log.info("Skip %s: %s", symbol, why)
+                return
 
         # ---- risk gates ------------------------------------------------------
         spread = self.client.spread_points(symbol)

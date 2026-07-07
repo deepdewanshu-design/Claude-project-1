@@ -41,6 +41,29 @@ break-even, and a 20-minute time stop for scalps that go nowhere.
 - If even the broker's minimum lot would risk more than 1.5× the target, the
   trade is skipped rather than oversized.
 
+## News & market-condition protection
+
+Scalping through a high-impact release is how tight stops get skipped by
+multiples, so two independent guards run in front of every entry:
+
+- **Economic calendar** (`scalper/news.py`) — the bot downloads the free
+  Forex Factory weekly calendar (no API key), caches it under `cache/`, and
+  refreshes on a TTL. It blocks new entries ±15 min around High-impact events
+  affecting a symbol's currencies (FX pairs derive their currencies from the
+  symbol name; metals/indices use `news.currency_map`), and closes open
+  positions 5 minutes before such events. If the feed is unreachable it keeps
+  trading and warns (`fail_closed: true` halts entries instead). Windows,
+  impact levels, and the flatten behaviour are tunable under `news:` in
+  `config.yaml`.
+- **Spike guard** (in the strategy) — no entries while any of the last 10
+  M1 candles has a range above 3× ATR. This catches what the calendar can't:
+  surprise headlines, flash moves, fat-finger candles. Being market-derived,
+  it also works fully offline. Tune via `strategy.max_candle_atr_mult` /
+  `spike_lookback_bars` (per-symbol overridable like everything else).
+
+The backtester does not simulate either guard's calendar side — another
+reason live/demo trade counts will differ from backtests.
+
 ## Learning from losing trades
 
 Every trade is journaled with its entry context (`journal/trades.csv`:
@@ -146,6 +169,7 @@ scalper/
   trade_manager.py      break-even, ATR trailing, time stop
   journal.py            per-trade diary (entry context + outcome, CSV)
   learning.py           mines the journal for loss patterns -> rules
+  news.py               economic-calendar fetch/cache + entry/flatten gates
   mt5_client.py         all MetaTrader5 API calls (orders, data, history)
   bot.py                main polling loop
 journal/                created at runtime: trades.csv, learned_rules.json

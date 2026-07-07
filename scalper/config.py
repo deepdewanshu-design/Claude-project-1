@@ -46,6 +46,11 @@ class StrategyConfig:
     sl_atr_mult: float = 1.5
     min_sl_points: int = 30
     reward_risk: float = 1.2
+    # spike guard ("other factors"): skip entries if any of the last
+    # spike_lookback_bars candles has a range > max_candle_atr_mult x ATR —
+    # catches surprise news / flash moves the calendar doesn't list. 0 = off.
+    max_candle_atr_mult: float = 3.0
+    spike_lookback_bars: int = 10
 
 
 @dataclass
@@ -70,6 +75,26 @@ class SessionConfig:
             eh, em = (int(x) for x in end.strip().split(":"))
             out.append((sh * 60 + sm, eh * 60 + em))
         return out
+
+
+@dataclass
+class NewsConfig:
+    enabled: bool = True
+    block_minutes_before: float = 15.0
+    block_minutes_after: float = 15.0
+    impacts: List[str] = field(default_factory=lambda: ["High"])
+    flatten_before_news: bool = True
+    flatten_minutes_before: float = 5.0
+    refresh_hours: float = 6.0
+    fail_closed: bool = False
+    cache_dir: str = "cache"
+    # symbol -> list of currencies whose news moves it (FX pairs are derived
+    # automatically from the symbol name; metals/indices need this map)
+    currency_map: Dict[str, list] = field(default_factory=lambda: {
+        "XAUUSD": ["USD"],
+        "XAGUSD": ["USD"],
+        "US30": ["USD"],
+    })
 
 
 @dataclass
@@ -100,6 +125,7 @@ class Config:
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
     management: ManagementConfig = field(default_factory=ManagementConfig)
     session: SessionConfig = field(default_factory=SessionConfig)
+    news: NewsConfig = field(default_factory=NewsConfig)
     learning: LearningConfig = field(default_factory=LearningConfig)
     bot: BotConfig = field(default_factory=BotConfig)
     # Per-symbol overrides for point-scaled settings, e.g.
@@ -135,6 +161,7 @@ def load_config(path: str | Path = "config.yaml") -> Config:
         strategy=_build(StrategyConfig, raw.get("strategy", {})),
         management=_build(ManagementConfig, raw.get("management", {})),
         session=_build(SessionConfig, raw.get("session", {})),
+        news=_build(NewsConfig, raw.get("news", {})),
         learning=_build(LearningConfig, raw.get("learning", {})),
         bot=_build(BotConfig, raw.get("bot", {})),
         symbol_overrides=dict(raw.get("symbol_overrides", {}) or {}),

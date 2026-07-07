@@ -124,6 +124,9 @@ that's your demo account.
 | `OPENED BUY EURUSD 0.08 lots @ ...` | A trade was placed, with its stop-loss and target |
 | `Skip EURUSD: spread 25 > 20 points` | A trade was skipped because conditions were bad |
 | `Skip EURUSD: learned rule: ...` | Skipped because this setup **lost money before** |
+| `Skip EURUSD: news: USD CPI y/y (High) in 12 min` | Standing aside for a **news release** |
+| `Closing EURUSD #123 ahead of USD Non-Farm...` | Getting out **before** a big announcement |
+| `News: calendar fetch failed ...` | Can't reach the news calendar — bot keeps trading but without news protection (see below) |
 | `Moving SL on EURUSD #123...` | Protecting profit on an open trade |
 | `Journal: closed #123 ... pnl=-24.80 (-0.99R, stop_loss)` | A trade finished and was recorded |
 | `Daily loss limit hit ... no more entries today` | Safety brake: ~$100 lost today, trading paused until tomorrow |
@@ -197,6 +200,37 @@ start learning again from zero.
 
 ---
 
+## Part 3b — News protection
+
+Big economic announcements (US jobs report, inflation numbers, central-bank
+rate decisions) can move prices violently in seconds — the worst possible
+environment for a scalper. The bot protects itself two ways, both on by
+default:
+
+1. **It reads the economic calendar.** Every few hours it downloads the
+   week's scheduled events from a free public feed (Forex Factory). It will
+   not open a trade from 15 minutes before until 15 minutes after a
+   high-impact event that affects what it's trading (US news affects gold
+   and US30 too), and it closes any open trade 5 minutes before such an
+   event. You'll see this in the log as `Skip ... news:` lines.
+2. **It watches for shock candles.** If the last few minutes contain a
+   candle far larger than normal (a surprise headline the calendar didn't
+   know about), it stands aside until the market calms down. This works
+   even with no internet.
+
+Things worth knowing:
+
+- The calendar needs internet access. If the download fails, the bot keeps
+  trading and logs a warning. If you'd rather it **stopped trading whenever
+  the calendar is unavailable**, set `fail_closed: true` under `news:` in
+  `config.yaml` — a good idea once you trust the bot.
+- To be more cautious, change `impacts: [High]` to `impacts: [High, Medium]`
+  — fewer trades, fewer surprises.
+- The downloaded calendar is kept in the `cache` folder; you can delete it
+  any time, it will simply re-download.
+
+---
+
 ## Part 4 — Changing settings
 
 All settings live in `config.yaml` (right-click → Open with → Notepad).
@@ -211,6 +245,8 @@ startup. The ones you're most likely to touch:
 | `trade_hours_utc` | When it's allowed to trade (UTC!) | London + NY |
 | `corpus` | The capital it sizes against | `5000.0` |
 | `learning.enabled` | Turn the learning feature on/off | `true` |
+| `news.enabled` | Turn news protection on/off | `true` |
+| `news.fail_closed` | Stop trading if the news feed is unreachable | `false` |
 
 Keep the file's exact spacing/indentation — YAML files are picky about it.
 

@@ -75,6 +75,14 @@ class ScalpStrategy:
         if cur_atr < self.cfg.min_atr_points * point:
             return None  # market too quiet to scalp
 
+        # spike guard: an abnormal candle just happened (flash move, surprise
+        # news) — stand aside until conditions normalise
+        if self.cfg.max_candle_atr_mult > 0 and self.cfg.spike_lookback_bars > 0:
+            recent = m1.tail(self.cfg.spike_lookback_bars)
+            max_range = float((recent["high"] - recent["low"]).max())
+            if max_range > self.cfg.max_candle_atr_mult * cur_atr:
+                return None
+
         crossed_up = fast.iloc[-2] <= slow.iloc[-2] and fast.iloc[-1] > slow.iloc[-1]
         crossed_down = fast.iloc[-2] >= slow.iloc[-2] and fast.iloc[-1] < slow.iloc[-1]
 

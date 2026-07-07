@@ -71,6 +71,27 @@ def test_no_long_signal_against_downtrend():
     assert strat.evaluate("EURUSD", m1, m5, POINT) is None
 
 
+def test_spike_guard_blocks_after_abnormal_candle():
+    cfg = StrategyConfig(rsi_long_max=100.0, min_atr_points=1)
+    strat = ScalpStrategy(cfg)
+    m5 = make_df(np.linspace(1.0950, 1.1050, 80))
+    down = np.linspace(1.1050, 1.1000, 60)
+    up = np.linspace(1.1000, 1.1080, 3)
+    m1 = make_df(np.concatenate([down, up]))
+    # sanity: this setup produces a signal without the spike
+    assert strat.evaluate("EURUSD", m1, m5, POINT) is not None
+    # inject a news-style candle (huge range) 5 bars back -> stand aside
+    spiked = m1.copy()
+    idx = len(spiked) - 5
+    spiked.loc[idx, "high"] = spiked.loc[idx, "close"] + 0.0100
+    spiked.loc[idx, "low"] = spiked.loc[idx, "close"] - 0.0100
+    assert strat.evaluate("EURUSD", spiked, m5, POINT) is None
+    # spike disabled -> signal returns
+    strat_off = ScalpStrategy(StrategyConfig(
+        rsi_long_max=100.0, min_atr_points=1, max_candle_atr_mult=0))
+    assert strat_off.evaluate("EURUSD", spiked, m5, POINT) is not None
+
+
 def test_quiet_market_filtered_by_atr_floor():
     cfg = StrategyConfig(min_atr_points=500)
     strat = ScalpStrategy(cfg)

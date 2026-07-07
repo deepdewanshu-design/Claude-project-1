@@ -65,12 +65,35 @@ strategy:
   sl_atr_mult: 1.5             # stop-loss distance = 1.5 x ATR(M1)
   min_sl_points: 30            # floor so the stop is never inside spread noise
   reward_risk: 1.2             # take-profit = 1.2 x stop distance
+  max_candle_atr_mult: 3.0     # spike guard: stand aside after a candle > 3 x ATR
+  spike_lookback_bars: 10      # ...within the last N minutes (0 disables)
 
 management:
   breakeven_trigger_rr: 0.7    # at +0.7R move stop to entry...
   breakeven_buffer_points: 2   # ...plus a small buffer
   trail_atr_mult: 1.0          # after break-even, trail stop by 1 x ATR
   max_hold_minutes: 20         # scalps that go nowhere get closed
+
+# Economic-news protection. The bot downloads the free Forex Factory weekly
+# calendar (no account/key needed), refuses NEW entries in a window around
+# events that move a symbol's currencies, and closes open trades shortly
+# before high-impact releases (NFP, CPI, rate decisions...). If the feed is
+# unreachable it keeps trading and warns — set fail_closed: true to halt
+# entries whenever the calendar is unavailable instead.
+news:
+  enabled: true
+  impacts: [High]              # which impact levels to avoid (add Medium to be stricter)
+  block_minutes_before: 15     # no new entries this long before an event...
+  block_minutes_after: 15      # ...and this long after
+  flatten_before_news: true    # close open positions ahead of events
+  flatten_minutes_before: 5
+  refresh_hours: 6             # re-download the calendar this often
+  fail_closed: false
+  cache_dir: cache
+  currency_map:                # which currency's news moves non-FX symbols
+    XAUUSD: [USD]
+    XAGUSD: [USD]
+    US30: [USD]
 
 # Learn from losing trades. The bot journals every trade (journal/trades.csv)
 # and blocks setups that persistently lose: bad hours, bad directions, wide
