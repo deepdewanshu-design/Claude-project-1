@@ -1,0 +1,66 @@
+# MT5 Scalping Bot configuration
+#
+# Plug in your DEMO account credentials below, or leave login = 0 to attach
+# to an MT5 terminal that is already running and logged in to your demo account.
+
+account:
+  login: 0              # demo account number (0 = use already-logged-in terminal)
+  password: ""          # demo account password
+  server: ""            # e.g. "MetaQuotes-Demo"
+  terminal_path: ""     # optional: full path to terminal64.exe
+
+# Total capital the bot is allowed to reason about. Even if the demo account
+# has a larger balance, sizing and loss limits are computed against
+# min(corpus, account equity) so behaviour matches a real 5k account.
+corpus: 5000.0
+
+risk:
+  risk_per_trade_pct: 0.5      # 0.5% of corpus = $25 risked per trade
+  max_daily_loss_pct: 2.0      # stop trading for the day at -2% ($100)
+  max_daily_trades: 30         # hard cap on entries per day
+  max_open_positions: 2        # across all symbols
+  max_positions_per_symbol: 1
+  max_spread_points: 20        # skip entries when spread is wider than this
+  max_risk_overshoot: 1.5      # if even the min lot risks > 1.5x target, skip
+
+symbols:
+  - EURUSD
+  - GBPUSD
+
+strategy:
+  entry_timeframe: M1          # signal candles
+  trend_timeframe: M5          # higher-timeframe trend filter
+  ema_fast: 9
+  ema_slow: 21
+  trend_ema_fast: 20
+  trend_ema_slow: 50
+  rsi_period: 14
+  rsi_long_min: 50.0           # long entries only while RSI is in [min, max]
+  rsi_long_max: 70.0
+  rsi_short_min: 30.0
+  rsi_short_max: 50.0
+  atr_period: 14
+  min_atr_points: 15           # skip dead markets (ATR below this, in points)
+  sl_atr_mult: 1.5             # stop-loss distance = 1.5 x ATR(M1)
+  min_sl_points: 30            # floor so the stop is never inside spread noise
+  reward_risk: 1.2             # take-profit = 1.2 x stop distance
+
+management:
+  breakeven_trigger_rr: 0.7    # at +0.7R move stop to entry...
+  breakeven_buffer_points: 2   # ...plus a small buffer
+  trail_atr_mult: 1.0          # after break-even, trail stop by 1 x ATR
+  max_hold_minutes: 20         # scalps that go nowhere get closed
+
+session:
+  # Only trade inside these UTC windows (London open + NY overlap by default).
+  # Empty list = trade around the clock.
+  trade_hours_utc:
+    - "07:00-11:00"
+    - "12:30-16:30"
+  friday_flat_hour_utc: 20     # close everything and stop on Friday from this hour
+
+bot:
+  poll_seconds: 2
+  magic: 510150                # identifies this bot's orders in MT5
+  deviation_points: 10         # max slippage
+  comment: "scalper-m1m5"
