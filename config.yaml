@@ -51,6 +51,19 @@ management:
   trail_atr_mult: 1.0          # after break-even, trail stop by 1 x ATR
   max_hold_minutes: 20         # scalps that go nowhere get closed
 
+# Learn from losing trades. The bot journals every trade (journal/trades.csv)
+# and blocks setups that persistently lose: bad hours, bad directions, wide
+# spreads. It also halves risk after a losing streak until a winner resets it.
+# Rules are recomputed over a rolling window, so blocks expire as losses age out.
+learning:
+  enabled: true
+  journal_dir: journal
+  lookback_days: 30            # only learn from the last N days of trades
+  min_trades_per_bucket: 8     # need this many trades before judging a pattern
+  block_expectancy_r: -0.15    # block a pattern averaging worse than -0.15R
+  streak_throttle_after: 3     # halve risk after this many consecutive losses
+  min_risk_multiplier: 0.25    # never cut risk below 25% of normal
+
 session:
   # Only trade inside these UTC windows (London open + NY overlap by default).
   # Empty list = trade around the clock.

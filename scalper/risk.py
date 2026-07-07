@@ -48,12 +48,16 @@ class RiskManager:
     def target_risk_amount(self, equity: float) -> float:
         return self.risk_basis(equity) * self.cfg.risk_per_trade_pct / 100.0
 
-    def lot_size(self, spec: SymbolSpec, sl_distance: float, equity: float) -> LotResult:
+    def lot_size(
+        self, spec: SymbolSpec, sl_distance: float, equity: float,
+        risk_multiplier: float = 1.0,
+    ) -> LotResult:
         """Size a position so that hitting the stop loses ~risk_per_trade_pct.
 
         sl_distance is the stop distance in *price* units (not points).
+        risk_multiplier scales the target down (e.g. loss-streak throttle).
         """
-        target = self.target_risk_amount(equity)
+        target = self.target_risk_amount(equity) * risk_multiplier
         if sl_distance <= 0 or spec.tick_size <= 0 or spec.tick_value <= 0:
             return LotResult(0.0, 0.0, target, "invalid stop distance or symbol spec")
 

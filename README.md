@@ -10,6 +10,9 @@ demo account's actual balance.
 > that look fine on a demo feed routinely lose money live due to spread,
 > slippage, and commissions. Nothing here is financial advice.
 
+**New to this?** See **[OPERATING_GUIDE.md](OPERATING_GUIDE.md)** for
+step-by-step instructions that assume no coding knowledge.
+
 ## How it trades
 
 **Entry (per symbol, evaluated once per closed M1 candle):**
@@ -37,6 +40,33 @@ break-even, and a 20-minute time stop for scalps that go nowhere.
   Friday evenings.
 - If even the broker's minimum lot would risk more than 1.5× the target, the
   trade is skipped rather than oversized.
+
+## Learning from losing trades
+
+Every trade is journaled with its entry context (`journal/trades.csv`:
+hour, direction, spread, ATR, RSI, exit reason, R-multiple). After each
+closed trade the learning engine re-mines a rolling 30-day window and
+enforces explainable rules — no black-box ML:
+
+- **Hour blocks** — a (symbol, hour) bucket with ≥ 8 trades averaging worse
+  than −0.15R stops being traded in that hour.
+- **Direction blocks** — same test per (symbol, direction).
+- **Spread caps** — if the expensive half of a symbol's entries (by spread)
+  loses, the accepted spread is capped at that symbol's observed median.
+- **Loss-streak throttle** — after 3 consecutive losses, risk per trade is
+  halved (then quartered) until a winner resets it.
+
+Blocked patterns are re-allowed automatically once their losing trades age
+out of the lookback window. Current rules (with the stats justifying each)
+live in `journal/learned_rules.json`, and
+
+```powershell
+python analyze_trades.py
+```
+
+prints a readable report: performance by symbol / direction / hour / exit
+reason plus every active rule. Thresholds are tunable under `learning:` in
+`config.yaml`; delete the `journal/` folder to reset the bot's memory.
 
 ## Requirements
 
@@ -105,15 +135,20 @@ pip install pytest && python -m pytest tests/
 ```
 run_bot.py              entry point
 backtest.py             offline strategy sanity check
-config.yaml             all tunables (risk, strategy, sessions, symbols)
+analyze_trades.py       journal report + active learned rules
+config.yaml             all tunables (risk, strategy, sessions, learning, symbols)
+OPERATING_GUIDE.md      step-by-step instructions for non-coders
 scalper/
   config.py             typed config loading
   indicators.py         EMA / RSI / ATR (pandas, no MT5 dependency)
   strategy.py           M1 entry + M5 trend filter -> Signal
   risk.py               lot sizing + daily loss / trade-count guards
   trade_manager.py      break-even, ATR trailing, time stop
+  journal.py            per-trade diary (entry context + outcome, CSV)
+  learning.py           mines the journal for loss patterns -> rules
   mt5_client.py         all MetaTrader5 API calls (orders, data, history)
   bot.py                main polling loop
+journal/                created at runtime: trades.csv, learned_rules.json
 tests/                  unit tests for the platform-independent parts
 ```
 

@@ -28,6 +28,7 @@ class Signal:
     sl_distance: float    # price units
     tp_distance: float    # price units
     atr_value: float
+    rsi_value: float = 0.0
     note: str = ""
 
 
@@ -93,5 +94,6 @@ class ScalpStrategy:
             sl_distance=sl_distance,
             tp_distance=tp_distance,
             atr_value=cur_atr,
+            rsi_value=float(cur_rsi),
             note=f"trend={'up' if trend > 0 else 'down'} rsi={cur_rsi:.1f} atr={cur_atr:.5f}",
         )

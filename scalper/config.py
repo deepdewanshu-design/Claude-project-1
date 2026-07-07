@@ -73,6 +73,17 @@ class SessionConfig:
 
 
 @dataclass
+class LearningConfig:
+    enabled: bool = True
+    journal_dir: str = "journal"
+    lookback_days: int = 30
+    min_trades_per_bucket: int = 8
+    block_expectancy_r: float = -0.15
+    streak_throttle_after: int = 3
+    min_risk_multiplier: float = 0.25
+
+
+@dataclass
 class BotConfig:
     poll_seconds: float = 2.0
     magic: int = 510150
@@ -89,6 +100,7 @@ class Config:
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
     management: ManagementConfig = field(default_factory=ManagementConfig)
     session: SessionConfig = field(default_factory=SessionConfig)
+    learning: LearningConfig = field(default_factory=LearningConfig)
     bot: BotConfig = field(default_factory=BotConfig)
 
 
@@ -107,5 +119,6 @@ def load_config(path: str | Path = "config.yaml") -> Config:
         strategy=_build(StrategyConfig, raw.get("strategy", {})),
         management=_build(ManagementConfig, raw.get("management", {})),
         session=_build(SessionConfig, raw.get("session", {})),
+        learning=_build(LearningConfig, raw.get("learning", {})),
         bot=_build(BotConfig, raw.get("bot", {})),
     )

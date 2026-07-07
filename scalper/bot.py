@@ -11,8 +11,10 @@ import pandas as pd
 
 from .config import Config
 from .indicators import atr
+from .journal import TradeJournal
+from .learning import LearningEngine
 from .mt5_client import MT5Client
-from .risk import RiskManager
+from .risk import RiskManager, SymbolSpec
 from .strategy import ScalpStrategy, Signal
 from .trade_manager import TradeManager
 
@@ -28,6 +30,13 @@ class ScalpingBot:
         self.manager = TradeManager(cfg.management, self.client)
         self._last_candle_time: Dict[str, pd.Timestamp] = {}
         self._session_windows = cfg.session.windows()
+
+        self.journal: Optional[TradeJournal] = None
+        self.learning: Optional[LearningEngine] = None
+        if cfg.learning.enabled:
+            self.journal = TradeJournal(cfg.learning.journal_dir)
+            self.learning = LearningEngine(cfg.learning, self.journal)
+            self.learning.refresh()
 
     # ---- session gating -----------------------------------------------------
 
@@ -69,6 +78,9 @@ class ScalpingBot:
             self.client.shutdown()
 
     def _tick(self) -> None:
+        # 0) learn from anything that closed since the last poll
+        self._reconcile_closed_trades()
+
         if self.friday_flat():
             self.manager.flatten_all("Friday flat time")
             return
@@ -87,6 +99,30 @@ class ScalpingBot:
             return
         for symbol in self.cfg.symbols:
             self._maybe_enter(symbol)
+
+    def _reconcile_closed_trades(self) -> None:
+        """Feed trades that closed (SL/TP/time/manual) into the journal and
+        re-learn the rules."""
+        if self.journal is None:
+            return
+        still_open = {p.ticket for p in self.client.my_positions()}
+        closed_any = False
+        for ticket in list(self.journal.open_tickets()):
+            if int(ticket) in still_open:
+                continue
+            info = self.client.position_close_info(int(ticket))
+            if info is None:
+                continue  # deal history not visible yet — retry next poll
+            self.journal.record_close(int(ticket), **info)
+            closed_any = True
+        if closed_any and self.learning is not None:
+            self.learning.refresh()
+            mult = self.learning.risk_multiplier()
+            if mult < 1.0:
+                log.info(
+                    "Loss streak of %d: risk throttled to %.0f%% of normal",
+                    self.learning.loss_streak, mult * 100,
+                )
 
     def _maybe_enter(self, symbol: str) -> None:
         m1 = self.client.closed_candles(
@@ -118,6 +154,18 @@ class ScalpingBot:
                      self.cfg.risk.max_spread_points)
             return
 
+        # ---- learned rules (patterns that lost money before) ------------------
+        risk_multiplier = 1.0
+        if self.learning is not None:
+            hour = datetime.now(timezone.utc).hour
+            ok, why = self.learning.allows(
+                symbol, signal.direction, hour, float(spread or 0)
+            )
+            if not ok:
+                log.info("Skip %s: %s", symbol, why)
+                return
+            risk_multiplier = self.learning.risk_multiplier()
+
         equity = self.client.equity()
         pnl_today, trades_today = self.client.todays_stats()
         ok, why = self.risk.can_open(
@@ -131,19 +179,25 @@ class ScalpingBot:
             log.info("Skip %s: %s", symbol, why)
             return
 
-        sizing = self.risk.lot_size(spec, signal.sl_distance, equity)
+        sizing = self.risk.lot_size(
+            spec, signal.sl_distance, equity, risk_multiplier=risk_multiplier
+        )
         if sizing.lots <= 0:
             log.info("Skip %s: %s", symbol, sizing.reason)
             return
 
-        self._place(symbol, signal, sizing.lots, spec.point)
+        self._place(symbol, signal, sizing, spec, float(spread or 0), risk_multiplier)
 
-    def _place(self, symbol: str, signal: Signal, lots: float, point: float) -> None:
+    def _place(
+        self, symbol: str, signal: Signal, sizing, spec: SymbolSpec,
+        spread_points: float, risk_multiplier: float,
+    ) -> None:
         import MetaTrader5 as mt5
 
         tick = self.client.tick(symbol)
         info = mt5.symbol_info(symbol)
         digits = info.digits if info else 5
+        lots = sizing.lots
 
         if signal.direction == "buy":
             entry = tick.ask
@@ -155,8 +209,28 @@ class ScalpingBot:
             tp = round(entry - signal.tp_distance, digits)
 
         result = self.client.market_order(symbol, signal.direction, lots, sl, tp)
-        if result is not None and result.retcode == mt5.TRADE_RETCODE_DONE:
-            log.info(
-                "OPENED %s %s %.2f lots @ %.5f sl=%.5f tp=%.5f",
-                signal.direction.upper(), symbol, lots, result.price, sl, tp,
-            )
+        if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
+            return
+        log.info(
+            "OPENED %s %s %.2f lots @ %.5f sl=%.5f tp=%.5f",
+            signal.direction.upper(), symbol, lots, result.price, sl, tp,
+        )
+        if self.journal is not None:
+            now = datetime.now(timezone.utc)
+            self.journal.record_open(result.order, {
+                "symbol": symbol,
+                "direction": signal.direction,
+                "open_time": now.isoformat(timespec="seconds"),
+                "entry_price": result.price,
+                "lots": lots,
+                "sl_price": sl,
+                "tp_price": tp,
+                "sl_points": round(signal.sl_distance / spec.point, 1),
+                "spread_points": spread_points,
+                "atr_points": round(signal.atr_value / spec.point, 1),
+                "rsi": round(signal.rsi_value, 1),
+                "hour_utc": now.hour,
+                "weekday": now.weekday(),
+                "risk_multiplier": risk_multiplier,
+                "planned_risk": round(sizing.risk_amount, 2),
+            })

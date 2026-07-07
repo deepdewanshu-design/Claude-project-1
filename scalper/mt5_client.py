@@ -151,6 +151,37 @@ class MT5Client:
                 entries += 1
         return pnl, entries
 
+    def position_close_info(self, position_ticket: int) -> Optional[dict]:
+        """Outcome of a closed position, or None if deals aren't visible yet.
+
+        Returns exit_price, total pnl (incl. swap/commission), exit_reason
+        (stop_loss / take_profit / time_stop / manual) and close_time (ISO).
+        """
+        deals = mt5.history_deals_get(position=position_ticket)
+        if not deals:
+            return None
+        exits = [d for d in deals if d.entry != mt5.DEAL_ENTRY_IN]
+        if not exits:
+            return None
+        last = max(exits, key=lambda d: d.time)
+        pnl = sum(d.profit + d.swap + d.commission for d in deals)
+        if last.reason == mt5.DEAL_REASON_SL:
+            reason = "stop_loss"
+        elif last.reason == mt5.DEAL_REASON_TP:
+            reason = "take_profit"
+        elif f"{self.bot.comment}-close" in (last.comment or ""):
+            reason = "time_stop"
+        else:
+            reason = "manual"
+        return {
+            "exit_price": last.price,
+            "pnl": pnl,
+            "exit_reason": reason,
+            "close_time": datetime.fromtimestamp(
+                last.time, tz=timezone.utc
+            ).isoformat(timespec="seconds"),
+        }
+
     # ---- orders ---------------------------------------------------------------
 
     def _filling_mode(self, symbol: str) -> int:
