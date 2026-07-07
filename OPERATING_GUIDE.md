@@ -214,6 +214,30 @@ startup. The ones you're most likely to touch:
 
 Keep the file's exact spacing/indentation — YAML files are picky about it.
 
+### Trading gold, silver, or an index (like US30)
+
+The bot only trades what you list under `symbols:` — it never chooses on its
+own. To add gold:
+
+1. In MetaTrader 5, find the exact name in the **Market Watch** panel
+   (Ctrl+M). Brokers name gold differently: `XAUUSD`, `GOLD`, `XAUUSD.x`...
+   If you can't see it, right-click the panel → **Show All**.
+2. Add that exact name to the `symbols:` list in `config.yaml`:
+   ```yaml
+   symbols:
+     - EURUSD
+     - XAUUSD
+   ```
+3. Gold, silver and indices move in much bigger numbers than currency pairs,
+   so they need their own limits. `config.yaml` already contains a
+   `symbol_overrides:` section with starting values for `XAUUSD`, `XAGUSD`
+   and `US30` — if your broker uses a different name, rename that entry to
+   match. Without an override the bot would apply forex-sized limits, skip
+   most trades for "spread too wide", and use stops that are far too tight.
+4. Restart the bot. Money risked per trade stays the same (~$25): the bot
+   reads each instrument's contract details from the broker and sizes the
+   position accordingly.
+
 ---
 
 ## Part 5 — Troubleshooting

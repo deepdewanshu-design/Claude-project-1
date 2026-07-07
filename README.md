@@ -164,3 +164,20 @@ Everything lives in `config.yaml`. The most impactful knobs:
 - `session.trade_hours_utc` — scalping outside liquid sessions mostly donates
   spread to the broker.
 - `symbols` — stick to majors with tight spreads on your demo server.
+
+## Choosing instruments (FX, gold, silver, indices)
+
+The bot never picks instruments itself — it trades exactly the `symbols:`
+list in `config.yaml`, using each symbol's contract spec (point size, tick
+value, lot steps) straight from the broker, so position sizing stays correct
+across asset classes.
+
+Metals and indices have very different point scales from 5-digit FX, so the
+point-denominated settings (`min_sl_points`, `min_atr_points`,
+`max_spread_points`) must be overridden per symbol under `symbol_overrides:`.
+`config.yaml` ships with starting values for `XAUUSD`, `XAGUSD`, and `US30` —
+verify the symbol name and typical spread on *your* broker's demo (gold may be
+listed as `GOLD` or `XAUUSD.x`) and adjust. The backtester has matching
+contract presets: e.g.
+`python backtest.py --csv gold_m1.csv --symbol XAUUSD --spread-points 30`
+(override with `--point` / `--tick-value` if your broker's contract differs).

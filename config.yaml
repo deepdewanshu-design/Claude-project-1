@@ -23,9 +23,30 @@ risk:
   max_spread_points: 20        # skip entries when spread is wider than this
   max_risk_overshoot: 1.5      # if even the min lot risks > 1.5x target, skip
 
+# The bot trades EXACTLY the symbols listed here — it never picks its own.
+# Use the names as they appear in your broker's Market Watch (gold may be
+# "XAUUSD", "GOLD", or "XAUUSD.x" depending on the broker).
 symbols:
   - EURUSD
   - GBPUSD
+
+# Point-scaled settings above are tuned for 5-digit FX. Metals and indices
+# have very different point sizes, so override them per symbol here (any
+# strategy field plus max_spread_points can be overridden). These are sane
+# starting values — check your broker's actual spreads and adjust.
+symbol_overrides:
+  XAUUSD:                    # gold: point = 0.01 -> 1 point = $0.01/oz
+    max_spread_points: 45    # ~$0.45 spread allowance
+    min_sl_points: 80        # never risk tighter than ~$0.80
+    min_atr_points: 25
+  XAGUSD:                    # silver: point = 0.001
+    max_spread_points: 35
+    min_sl_points: 60
+    min_atr_points: 20
+  US30:                      # Dow CFD: point = 0.1 index points (broker-dependent!)
+    max_spread_points: 45    # ~4.5 index points
+    min_sl_points: 150       # ~15 index points
+    min_atr_points: 50
 
 strategy:
   entry_timeframe: M1          # signal candles

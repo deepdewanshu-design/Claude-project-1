@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 import yaml
 
@@ -102,6 +102,22 @@ class Config:
     session: SessionConfig = field(default_factory=SessionConfig)
     learning: LearningConfig = field(default_factory=LearningConfig)
     bot: BotConfig = field(default_factory=BotConfig)
+    # Per-symbol overrides for point-scaled settings, e.g.
+    #   symbol_overrides: {XAUUSD: {min_sl_points: 80, max_spread_points: 45}}
+    symbol_overrides: Dict[str, dict] = field(default_factory=dict)
+
+    def strategy_for(self, symbol: str) -> StrategyConfig:
+        """Strategy config with this symbol's overrides applied (any
+        StrategyConfig field can be overridden per symbol)."""
+        overrides = {
+            k: v for k, v in (self.symbol_overrides.get(symbol) or {}).items()
+            if k in StrategyConfig.__dataclass_fields__
+        }
+        return replace(self.strategy, **overrides) if overrides else self.strategy
+
+    def max_spread_for(self, symbol: str) -> float:
+        override = (self.symbol_overrides.get(symbol) or {}).get("max_spread_points")
+        return float(override if override is not None else self.risk.max_spread_points)
 
 
 def _build(cls, data: dict):
@@ -121,4 +137,5 @@ def load_config(path: str | Path = "config.yaml") -> Config:
         session=_build(SessionConfig, raw.get("session", {})),
         learning=_build(LearningConfig, raw.get("learning", {})),
         bot=_build(BotConfig, raw.get("bot", {})),
+        symbol_overrides=dict(raw.get("symbol_overrides", {}) or {}),
     )

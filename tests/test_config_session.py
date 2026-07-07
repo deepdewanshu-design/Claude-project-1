@@ -20,3 +20,16 @@ def test_session_windows_parsing():
 
 def test_empty_session_means_always():
     assert SessionConfig().windows() == []
+
+
+def test_symbol_overrides_applied():
+    cfg = load_config(Path(__file__).resolve().parents[1] / "config.yaml")
+    gold = cfg.strategy_for("XAUUSD")
+    assert gold.min_sl_points == 80
+    assert gold.min_atr_points == 25
+    # non-point settings inherit from the base strategy
+    assert gold.ema_fast == cfg.strategy.ema_fast
+    assert cfg.max_spread_for("XAUUSD") == 45
+    # symbols without overrides get the base config untouched
+    assert cfg.strategy_for("EURUSD") is cfg.strategy
+    assert cfg.max_spread_for("EURUSD") == cfg.risk.max_spread_points

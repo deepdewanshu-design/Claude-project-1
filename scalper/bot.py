@@ -25,7 +25,7 @@ class ScalpingBot:
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
         self.client = MT5Client(cfg.account, cfg.bot)
-        self.strategy = ScalpStrategy(cfg.strategy)
+        self.strategies: Dict[str, ScalpStrategy] = {}
         self.risk = RiskManager(cfg.corpus, cfg.risk)
         self.manager = TradeManager(cfg.management, self.client)
         self._last_candle_time: Dict[str, pd.Timestamp] = {}
@@ -37,6 +37,13 @@ class ScalpingBot:
             self.journal = TradeJournal(cfg.learning.journal_dir)
             self.learning = LearningEngine(cfg.learning, self.journal)
             self.learning.refresh()
+
+    def strategy_for(self, symbol: str) -> ScalpStrategy:
+        """One ScalpStrategy per symbol so per-symbol overrides (gold, indices)
+        take effect."""
+        if symbol not in self.strategies:
+            self.strategies[symbol] = ScalpStrategy(self.cfg.strategy_for(symbol))
+        return self.strategies[symbol]
 
     # ---- session gating -----------------------------------------------------
 
@@ -87,10 +94,11 @@ class ScalpingBot:
 
         # 1) manage what's already open (every poll, regardless of session)
         for pos in self.client.my_positions():
+            scfg = self.cfg.strategy_for(pos.symbol)
             m1 = self.client.closed_candles(
-                pos.symbol, self.cfg.strategy.entry_timeframe, self.strategy.min_bars()
+                pos.symbol, scfg.entry_timeframe, self.strategy_for(pos.symbol).min_bars()
             )
-            cur_atr = float(atr(m1, self.cfg.strategy.atr_period).iloc[-1])
+            cur_atr = float(atr(m1, scfg.atr_period).iloc[-1])
             spec = self.client.symbol_spec(pos.symbol)
             self.manager.manage(pos, cur_atr, spec.point)
 
@@ -125,8 +133,10 @@ class ScalpingBot:
                 )
 
     def _maybe_enter(self, symbol: str) -> None:
+        strategy = self.strategy_for(symbol)
+        scfg = strategy.cfg
         m1 = self.client.closed_candles(
-            symbol, self.cfg.strategy.entry_timeframe, self.strategy.min_bars() + 10
+            symbol, scfg.entry_timeframe, strategy.min_bars() + 10
         )
         last_time = m1["time"].iloc[-1]
         if self._last_candle_time.get(symbol) == last_time:
@@ -134,12 +144,11 @@ class ScalpingBot:
         self._last_candle_time[symbol] = last_time
 
         spec = self.client.symbol_spec(symbol)
-        signal = self.strategy.evaluate(
+        signal = strategy.evaluate(
             symbol,
             m1,
             self.client.closed_candles(
-                symbol, self.cfg.strategy.trend_timeframe,
-                self.cfg.strategy.trend_ema_slow + 10,
+                symbol, scfg.trend_timeframe, scfg.trend_ema_slow + 10,
             ),
             spec.point,
         )
@@ -149,9 +158,9 @@ class ScalpingBot:
 
         # ---- risk gates ------------------------------------------------------
         spread = self.client.spread_points(symbol)
-        if spread is not None and spread > self.cfg.risk.max_spread_points:
-            log.info("Skip %s: spread %s > %s points", symbol, spread,
-                     self.cfg.risk.max_spread_points)
+        max_spread = self.cfg.max_spread_for(symbol)
+        if spread is not None and spread > max_spread:
+            log.info("Skip %s: spread %s > %s points", symbol, spread, max_spread)
             return
 
         # ---- learned rules (patterns that lost money before) ------------------

@@ -23,6 +23,35 @@ from scalper.risk import RiskManager, SymbolSpec
 from scalper.strategy import ScalpStrategy
 
 
+# Typical contract specs for CSV mode (no terminal to ask). Real values vary
+# by broker — MT5 mode always uses the broker's actual spec instead.
+SPEC_PRESETS = {
+    "FX5": SymbolSpec(  # 5-digit FX major: 100k contract, $1 per point per lot
+        name="FX5", point=0.00001, tick_size=0.00001, tick_value=1.0,
+        volume_min=0.01, volume_max=100.0, volume_step=0.01,
+    ),
+    "XAUUSD": SymbolSpec(  # gold: 100 oz/lot, point 0.01 -> $1 per point per lot
+        name="XAUUSD", point=0.01, tick_size=0.01, tick_value=1.0,
+        volume_min=0.01, volume_max=100.0, volume_step=0.01,
+    ),
+    "XAGUSD": SymbolSpec(  # silver: 5000 oz/lot, point 0.001 -> $5 per point per lot
+        name="XAGUSD", point=0.001, tick_size=0.001, tick_value=5.0,
+        volume_min=0.01, volume_max=100.0, volume_step=0.01,
+    ),
+    "US30": SymbolSpec(  # index CFD: $1 per index point per lot, point 0.1
+        name="US30", point=0.1, tick_size=0.1, tick_value=0.1,
+        volume_min=0.1, volume_max=100.0, volume_step=0.1,
+    ),
+}
+
+
+def preset_for(symbol: str) -> SymbolSpec:
+    for key, spec in SPEC_PRESETS.items():
+        if key != "FX5" and key in symbol.upper():
+            return spec
+    return SPEC_PRESETS["FX5"]
+
+
 @dataclass
 class Trade:
     direction: str
@@ -48,7 +77,7 @@ def resample_m5(m1: pd.DataFrame) -> pd.DataFrame:
 
 
 def run_backtest(m1: pd.DataFrame, cfg, spec: SymbolSpec, spread_points: int) -> None:
-    strategy = ScalpStrategy(cfg.strategy)
+    strategy = ScalpStrategy(cfg.strategy_for(spec.name))
     risk = RiskManager(cfg.corpus, cfg.risk)
     equity = cfg.corpus
     spread = spread_points * spec.point
@@ -127,16 +156,21 @@ def main() -> None:
     p.add_argument("--symbol", default="EURUSD", help="symbol (MT5 mode or CSV label)")
     p.add_argument("--days", type=int, default=10, help="days of history (MT5 mode)")
     p.add_argument("--spread-points", type=int, default=10)
+    p.add_argument("--point", type=float, help="override contract point size (CSV mode)")
+    p.add_argument("--tick-value", type=float,
+                   help="override $ value of one point for 1 lot (CSV mode)")
     args = p.parse_args()
 
     cfg = load_config(args.config)
 
     if args.csv:
         m1 = pd.read_csv(args.csv, parse_dates=["time"])
-        spec = SymbolSpec(  # generic 5-digit FX defaults for CSV mode
-            name=args.symbol, point=0.00001, tick_size=0.00001,
-            tick_value=1.0, volume_min=0.01, volume_max=100.0, volume_step=0.01,
-        )
+        from dataclasses import replace
+        spec = replace(preset_for(args.symbol), name=args.symbol)
+        if args.point:
+            spec = replace(spec, point=args.point, tick_size=args.point)
+        if args.tick_value:
+            spec = replace(spec, tick_value=args.tick_value)
     else:
         import MetaTrader5 as mt5
         from datetime import datetime, timedelta, timezone
