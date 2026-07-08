@@ -27,8 +27,9 @@ import numpy as np
 import pandas as pd
 
 from scalper.config import load_config
-from scalper.indicators import atr, ema, rsi
+from scalper.indicators import atr, ema, macd, rsi
 from scalper.risk import RiskManager, SymbolSpec
+from scalper.strategy import build_strategy
 
 
 # Typical contract specs for CSV mode (no terminal to ask). Real values vary
@@ -111,11 +112,59 @@ def detect_bar_minutes(times: pd.Series) -> int:
     return int(times.diff().dt.total_seconds().median() // 60) or 1
 
 
-def precompute_signals(bars: pd.DataFrame, scfg, point: float, bar_minutes: int):
-    """Vectorised equivalent of ScalpStrategy.evaluate for every bar.
+def _active_gates(bars: pd.DataFrame, scfg, point: float, atr_v: pd.Series) -> pd.Series:
+    """ATR floor + spike guard, shared by all engines (mirrors common_gates)."""
+    active = atr_v >= scfg.min_atr_points * point
+    if scfg.max_candle_atr_mult > 0 and scfg.spike_lookback_bars > 0:
+        recent_range = (bars["high"] - bars["low"]).rolling(
+            scfg.spike_lookback_bars, min_periods=1
+        ).max()
+        active &= recent_range <= scfg.max_candle_atr_mult * atr_v
+    return active
 
-    Returns (long_ok, short_ok, sl_distance) numpy arrays. The trend
-    timeframe is 5x the bar size, mirroring the live M1/M5 pairing.
+
+def precompute_signals(bars: pd.DataFrame, scfg, point: float, bar_minutes: int):
+    """Vectorised signal generation for every bar (dispatches on engine).
+
+    Returns (long_ok, short_ok, sl_distance) numpy arrays.
+    """
+    if scfg.engine == "triple":
+        return _signals_triple(bars, scfg, point)
+    return _signals_crossover(bars, scfg, point, bar_minutes)
+
+
+def _signals_triple(bars: pd.DataFrame, scfg, point: float):
+    """Vectorised equivalent of TripleConfirmationStrategy.evaluate."""
+    close = bars["close"]
+    atr_v = atr(bars, scfg.atr_period)
+    trend_ema = ema(close, scfg.entry_trend_ema)
+    rsi_v = rsi(close, scfg.rsi_period)
+    line, sig = macd(close, scfg.macd_fast, scfg.macd_slow, scfg.macd_signal)
+
+    cross_up = (line.shift(1) <= sig.shift(1)) & (line > sig)
+    cross_down = (line.shift(1) >= sig.shift(1)) & (line < sig)
+    prev = rsi_v.shift(1)
+    dip_low = prev.rolling(scfg.rsi_dip_lookback, min_periods=1).min() <= scfg.rsi_oversold
+    dip_high = prev.rolling(scfg.rsi_dip_lookback, min_periods=1).max() >= scfg.rsi_overbought
+    rising = rsi_v > prev
+    falling = rsi_v < prev
+    between = (rsi_v > scfg.rsi_oversold) & (rsi_v < scfg.rsi_overbought)
+    active = _active_gates(bars, scfg, point, atr_v)
+
+    long_ok = ((close > trend_ema) & cross_up & dip_low & rising
+               & between & active).to_numpy()
+    short_ok = ((close < trend_ema) & cross_down & dip_high & falling
+                & between & active).to_numpy()
+    sl_distance = np.maximum(
+        scfg.sl_atr_mult * atr_v.to_numpy(), scfg.min_sl_points * point
+    )
+    return long_ok, short_ok, sl_distance
+
+
+def _signals_crossover(bars: pd.DataFrame, scfg, point: float, bar_minutes: int):
+    """Vectorised equivalent of ScalpStrategy.evaluate.
+
+    The trend timeframe is 5x the bar size, mirroring the live M1/M5 pairing.
     """
     close = bars["close"]
     fast = ema(close, scfg.ema_fast)
@@ -149,13 +198,7 @@ def precompute_signals(bars: pd.DataFrame, scfg, point: float, bar_minutes: int)
     trend = np.where(trend_ready.to_numpy(), trend, 0)
 
     # --- common gates ----------------------------------------------------------
-    active = atr_v >= scfg.min_atr_points * point
-    if scfg.max_candle_atr_mult > 0 and scfg.spike_lookback_bars > 0:
-        recent_range = (bars["high"] - bars["low"]).rolling(
-            scfg.spike_lookback_bars, min_periods=1
-        ).max()
-        active &= recent_range <= scfg.max_candle_atr_mult * atr_v
-    active = active.to_numpy()
+    active = _active_gates(bars, scfg, point, atr_v).to_numpy()
 
     long_ok = (trend > 0) & crossed_up.to_numpy() & active \
         & (rsi_v >= scfg.rsi_long_min).to_numpy() \
@@ -184,8 +227,7 @@ def run_backtest(bars: pd.DataFrame, cfg, spec: SymbolSpec, spread_points: int,
     risk = RiskManager(cfg.corpus, cfg.risk)
     bar_minutes = detect_bar_minutes(bars["time"])
     hold_bars = max(1, round(cfg.management.max_hold_minutes / bar_minutes))
-    warmup = max(scfg.ema_slow, scfg.trend_ema_slow, scfg.rsi_period,
-                 scfg.atr_period) + 5
+    warmup = build_strategy(scfg).min_bars()
     spread = spread_points * spec.point
 
     long_ok, short_ok, sl_dist = precompute_signals(bars, scfg, spec.point, bar_minutes)

@@ -22,6 +22,13 @@ def rsi(series: pd.Series, period: int = 14) -> pd.Series:
     return out
 
 
+def macd(series: pd.Series, fast: int = 12, slow: int = 26,
+         signal: int = 9) -> tuple[pd.Series, pd.Series]:
+    """(MACD line, signal line)."""
+    line = ema(series, fast) - ema(series, slow)
+    return line, line.ewm(span=signal, adjust=False).mean()
+
+
 def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
     """Average True Range from columns high/low/close (Wilder smoothing)."""
     prev_close = df["close"].shift(1)

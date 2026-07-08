@@ -30,6 +30,9 @@ class RiskConfig:
 
 @dataclass
 class StrategyConfig:
+    # which signal engine to run: "crossover" (M1 EMA cross + M5 trend) or
+    # "triple" (EMA50 trend + RSI recovering from oversold + MACD cross)
+    engine: str = "crossover"
     entry_timeframe: str = "M1"
     trend_timeframe: str = "M5"
     ema_fast: int = 9
@@ -51,6 +54,14 @@ class StrategyConfig:
     # catches surprise news / flash moves the calendar doesn't list. 0 = off.
     max_candle_atr_mult: float = 3.0
     spike_lookback_bars: int = 10
+    # --- "triple" engine parameters ---
+    entry_trend_ema: int = 50      # trade with price relative to this EMA
+    macd_fast: int = 12
+    macd_slow: int = 26
+    macd_signal: int = 9
+    rsi_oversold: float = 30.0     # RSI must have dipped below this recently...
+    rsi_overbought: float = 70.0   # ...(mirror for shorts)
+    rsi_dip_lookback: int = 10     # ...within this many bars before the trigger
 
 
 @dataclass

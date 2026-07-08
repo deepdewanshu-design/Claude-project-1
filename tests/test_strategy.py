@@ -3,8 +3,8 @@ import pandas as pd
 import pytest
 
 from scalper.config import StrategyConfig
-from scalper.indicators import atr, ema, rsi
-from scalper.strategy import ScalpStrategy
+from scalper.indicators import atr, ema, macd, rsi
+from scalper.strategy import ScalpStrategy, TripleConfirmationStrategy, build_strategy
 
 POINT = 0.00001
 
@@ -100,3 +100,67 @@ def test_quiet_market_filtered_by_atr_floor():
     up = np.linspace(1.1000, 1.1080, 3)
     m1 = make_df(np.concatenate([down, up]), spread=0.00001)
     assert strat.evaluate("EURUSD", m1, m5, POINT) is None
+
+
+# ---- triple-confirmation engine ------------------------------------------------
+
+
+def triple_cfg(**kw):
+    return StrategyConfig(engine="triple", min_atr_points=1, **kw)
+
+
+def dip_and_recover():
+    """Steep uptrend, shallow sharp pullback, then a recovery turn: price
+    stays above EMA50, RSI dips oversold, MACD crosses back up at the end."""
+    base = np.linspace(1.0800, 1.1100, 160)          # steep uptrend
+    pull = np.linspace(1.1100, 1.1070, 20)           # sharp dip (RSI oversold)
+    turn = np.linspace(1.1070, 1.1090, 4)            # recovery
+    return make_df(np.concatenate([base, pull, turn]))
+
+
+def test_macd_indicator():
+    flat = pd.Series([5.0] * 100)
+    line, sig = macd(flat)
+    assert abs(line.iloc[-1]) < 1e-12 and abs(sig.iloc[-1]) < 1e-12
+    rising = pd.Series(np.linspace(1, 2, 100))
+    line, sig = macd(rising)
+    assert line.iloc[-1] > 0
+
+
+def test_build_strategy_factory():
+    assert isinstance(build_strategy(StrategyConfig()), ScalpStrategy)
+    assert isinstance(build_strategy(triple_cfg()), TripleConfirmationStrategy)
+    with pytest.raises(ValueError):
+        build_strategy(StrategyConfig(engine="nonsense"))
+
+
+def test_triple_long_on_pullback_recovery():
+    strat = TripleConfirmationStrategy(triple_cfg())
+    m1 = dip_and_recover()
+    # find a bar in the recovery where all three conditions line up
+    sig = None
+    for end in range(len(m1) - 6, len(m1) + 1):
+        sig = strat.evaluate("EURUSD", m1.iloc[:end], m1, POINT)
+        if sig is not None:
+            break
+    assert sig is not None and sig.direction == "buy"
+    assert sig.tp_distance == pytest.approx(1.2 * sig.sl_distance)
+
+
+def test_triple_no_long_below_trend_ema():
+    strat = TripleConfirmationStrategy(triple_cfg())
+    # same dip-and-turn shape but inside a downtrend: price below EMA50
+    base = np.linspace(1.1400, 1.1100, 160)
+    pull = np.linspace(1.1100, 1.1070, 20)
+    turn = np.linspace(1.1070, 1.1090, 4)
+    m1 = make_df(np.concatenate([base, pull, turn]))
+    for end in range(len(m1) - 6, len(m1) + 1):
+        sig = strat.evaluate("EURUSD", m1.iloc[:end], m1, POINT)
+        assert sig is None or sig.direction != "buy"
+
+
+def test_triple_requires_recent_oversold_dip():
+    strat = TripleConfirmationStrategy(triple_cfg(rsi_oversold=1.0))  # dip ~impossible
+    m1 = dip_and_recover()
+    for end in range(len(m1) - 6, len(m1) + 1):
+        assert strat.evaluate("EURUSD", m1.iloc[:end], m1, POINT) is None

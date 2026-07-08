@@ -16,7 +16,7 @@ from .learning import LearningEngine
 from .mt5_client import MT5Client
 from .news import NewsCalendar, NewsFilter
 from .risk import RiskManager, SymbolSpec
-from .strategy import ScalpStrategy, Signal
+from .strategy import Signal, build_strategy
 from .trade_manager import TradeManager
 
 log = logging.getLogger(__name__)
@@ -26,7 +26,7 @@ class ScalpingBot:
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
         self.client = MT5Client(cfg.account, cfg.bot)
-        self.strategies: Dict[str, ScalpStrategy] = {}
+        self.strategies: Dict[str, object] = {}
         self.risk = RiskManager(cfg.corpus, cfg.risk)
         self.manager = TradeManager(cfg.management, self.client)
         self._last_candle_time: Dict[str, pd.Timestamp] = {}
@@ -44,11 +44,11 @@ class ScalpingBot:
             self.learning = LearningEngine(cfg.learning, self.journal)
             self.learning.refresh()
 
-    def strategy_for(self, symbol: str) -> ScalpStrategy:
-        """One ScalpStrategy per symbol so per-symbol overrides (gold, indices)
-        take effect."""
+    def strategy_for(self, symbol: str):
+        """One strategy engine per symbol so per-symbol overrides (gold,
+        indices, even a different engine) take effect."""
         if symbol not in self.strategies:
-            self.strategies[symbol] = ScalpStrategy(self.cfg.strategy_for(symbol))
+            self.strategies[symbol] = build_strategy(self.cfg.strategy_for(symbol))
         return self.strategies[symbol]
 
     # ---- session gating -----------------------------------------------------

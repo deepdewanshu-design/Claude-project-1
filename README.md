@@ -15,7 +15,23 @@ step-by-step instructions that assume no coding knowledge.
 
 ## How it trades
 
-**Entry (per symbol, evaluated once per closed M1 candle):**
+Two signal engines are available (`strategy.engine` in `config.yaml`, also
+switchable per symbol via `symbol_overrides`):
+
+- **`triple`** — pullback engine: price above the 50 EMA (trend), RSI
+  recovering upward after dipping oversold (momentum), MACD line crossing
+  its signal line (trigger); all three on the last closed entry candle,
+  mirrored for shorts. Highly selective (a few trades/week).
+- **`crossover`** — the original: M1 EMA9/21 cross filtered by M5 trend,
+  detailed below. Trades far more often.
+
+Both share the same risk plumbing: ATR stops/targets, spike guard, ATR
+floor, spread/news/session/learning gates. **Backtests on real EURUSD-M1
+and XAUUSD-M5 history show neither engine has positive expectancy with
+default parameters** (see the backtester) — treat the defaults as a
+framework to iterate on, not a proven edge.
+
+**Crossover entry (per symbol, evaluated once per closed M1 candle):**
 
 | Check | Long | Short |
 |---|---|---|

@@ -49,8 +49,12 @@ symbol_overrides:
     min_atr_points: 50
 
 strategy:
+  # Signal engine:
+  #   triple    — EMA50 trend + RSI recovery from oversold + MACD cross trigger
+  #   crossover — EMA9/21 cross on M1 filtered by M5 trend (the original)
+  engine: triple
   entry_timeframe: M1          # signal candles
-  trend_timeframe: M5          # higher-timeframe trend filter
+  trend_timeframe: M5          # higher-timeframe trend filter (crossover engine)
   ema_fast: 9
   ema_slow: 21
   trend_ema_fast: 20
@@ -67,6 +71,14 @@ strategy:
   reward_risk: 1.2             # take-profit = 1.2 x stop distance
   max_candle_atr_mult: 3.0     # spike guard: stand aside after a candle > 3 x ATR
   spike_lookback_bars: 10      # ...within the last N minutes (0 disables)
+  # --- triple engine ---
+  entry_trend_ema: 50          # longs above this EMA, shorts below
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+  rsi_oversold: 30.0           # RSI must dip below this before a long trigger
+  rsi_overbought: 70.0         # ...above this before a short trigger
+  rsi_dip_lookback: 10         # the dip must be within this many bars
 
 management:
   breakeven_trigger_rr: 0.7    # at +0.7R move stop to entry...
