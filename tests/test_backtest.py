@@ -54,3 +54,28 @@ def test_preset_matching():
     assert preset_for("XAUUSD.x").point == 0.01
     assert preset_for("EURUSD").point == 0.00001
     assert preset_for("US30").tick_value == 0.1
+
+
+def test_tf_minutes():
+    from backtest import tf_minutes
+    assert tf_minutes("M15") == 15
+    assert tf_minutes("H1") == 60
+    assert tf_minutes("H4") == 240
+    assert tf_minutes("D1") == 1440
+
+
+def test_resample_bars():
+    from backtest import resample_bars
+    m1 = pd.DataFrame({
+        "time": pd.date_range("2026-01-05 08:00", periods=30, freq="1min"),
+        "open": np.arange(30.0),
+        "high": np.arange(30.0) + 2,
+        "low": np.arange(30.0) - 2,
+        "close": np.arange(30.0) + 1,
+    })
+    m15 = resample_bars(m1, 15)
+    assert len(m15) == 2
+    assert m15["open"].iloc[0] == 0.0        # first bar's open
+    assert m15["high"].iloc[0] == 16.0       # max high of bars 0-14
+    assert m15["low"].iloc[1] == 13.0        # min low of bars 15-29
+    assert m15["close"].iloc[1] == 30.0      # last bar's close

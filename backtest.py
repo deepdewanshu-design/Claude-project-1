@@ -112,6 +112,22 @@ def detect_bar_minutes(times: pd.Series) -> int:
     return int(times.diff().dt.total_seconds().median() // 60) or 1
 
 
+def tf_minutes(tf: str) -> int:
+    """'M15' -> 15, 'H1' -> 60, 'H4' -> 240, 'D1' -> 1440."""
+    tf = tf.strip().upper()
+    return {"M": 1, "H": 60, "D": 1440}[tf[0]] * int(tf[1:])
+
+
+def resample_bars(bars: pd.DataFrame, minutes: int) -> pd.DataFrame:
+    g = bars.set_index("time").resample(f"{minutes}min")
+    return pd.DataFrame({
+        "open": g["open"].first(),
+        "high": g["high"].max(),
+        "low": g["low"].min(),
+        "close": g["close"].last(),
+    }).dropna().reset_index()
+
+
 def _active_gates(bars: pd.DataFrame, scfg, point: float, atr_v: pd.Series) -> pd.Series:
     """ATR floor + spike guard, shared by all engines (mirrors common_gates)."""
     active = atr_v >= scfg.min_atr_points * point
@@ -164,7 +180,9 @@ def _signals_triple(bars: pd.DataFrame, scfg, point: float):
 def _signals_crossover(bars: pd.DataFrame, scfg, point: float, bar_minutes: int):
     """Vectorised equivalent of ScalpStrategy.evaluate.
 
-    The trend timeframe is 5x the bar size, mirroring the live M1/M5 pairing.
+    The trend timeframe comes from config (trend_timeframe); if that isn't
+    coarser than the bars, it falls back to 5x the bar size, mirroring the
+    live M1/M5 pairing.
     """
     close = bars["close"]
     fast = ema(close, scfg.ema_fast)
@@ -176,7 +194,13 @@ def _signals_crossover(bars: pd.DataFrame, scfg, point: float, bar_minutes: int)
     crossed_down = (fast.shift(1) >= slow.shift(1)) & (fast < slow)
 
     # --- higher-timeframe trend from fully closed trend candles --------------
-    rule = f"{5 * bar_minutes}min"
+    try:
+        trend_minutes = tf_minutes(scfg.trend_timeframe)
+    except (KeyError, ValueError):
+        trend_minutes = 0
+    if trend_minutes <= bar_minutes:
+        trend_minutes = 5 * bar_minutes
+    rule = f"{trend_minutes}min"
     g = bars.set_index("time").resample(rule)
     trend_df = pd.DataFrame({"close": g["close"].last()}).dropna().reset_index()
     t_fast = ema(trend_df["close"], scfg.trend_ema_fast)
@@ -371,11 +395,23 @@ def main() -> None:
         spec = client.symbol_spec(args.symbol)
         client.shutdown()
 
+    # resample the data up to the configured entry timeframe if it's finer
+    scfg = cfg.strategy_for(spec.name)
     bar_minutes = detect_bar_minutes(bars["time"])
-    print(f"Backtesting {args.symbol}: {len(bars)} M{bar_minutes} candles "
-          f"({bars.time.iloc[0]} .. {bars.time.iloc[-1]}), "
-          f"trend timeframe M{5 * bar_minutes}, "
-          f"spread {args.spread_points} points")
+    entry_minutes = tf_minutes(scfg.entry_timeframe)
+    if entry_minutes > bar_minutes:
+        bars = resample_bars(bars, entry_minutes)
+        bar_minutes = entry_minutes
+    elif entry_minutes < bar_minutes:
+        print(f"NOTE: data is M{bar_minutes} but entry_timeframe is "
+              f"{scfg.entry_timeframe} — using the data's bar size")
+
+    trend_minutes = max(tf_minutes(scfg.trend_timeframe), 5 * bar_minutes) \
+        if scfg.engine == "crossover" else None
+    print(f"Backtesting {args.symbol} [{scfg.engine}]: {len(bars)} "
+          f"M{bar_minutes} candles ({bars.time.iloc[0]} .. {bars.time.iloc[-1]})"
+          + (f", trend M{trend_minutes}" if trend_minutes else "")
+          + f", spread {args.spread_points} points")
     trades = run_backtest(bars, cfg, spec, args.spread_points, args.use_sessions)
     report(trades, cfg.corpus)
 
