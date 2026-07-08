@@ -18,6 +18,19 @@ def test_load_mt4_export_format(tmp_path):
     assert df["time"].iloc[0] == pd.Timestamp("2004-06-11 07:15")
 
 
+def test_load_finam_histdata_format(tmp_path):
+    p = tmp_path / "eu.csv"
+    p.write_text(
+        "<TICKER>,<PER>,<DATE>,<TIME>,<OPEN>,<HIGH>,<LOW>,<CLOSE>,<VOL>\n"
+        "EURUSD,1,20170101,211000,1.0527,1.0528,1.0527,1.0527,1\n"
+        "EURUSD,1,20170101,211100,1.0527,1.0529,1.0526,1.0528,4\n"
+    )
+    df = load_candles_csv(str(p))
+    assert list(df.columns) == ["time", "open", "high", "low", "close"]
+    assert df["time"].iloc[0] == pd.Timestamp("2017-01-01 21:10:00")
+    assert df["close"].iloc[1] == 1.0528
+
+
 def test_load_plain_format(tmp_path):
     p = tmp_path / "plain.csv"
     p.write_text(

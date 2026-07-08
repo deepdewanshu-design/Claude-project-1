@@ -75,19 +75,29 @@ class Trade:
 
 
 def load_candles_csv(path: str) -> pd.DataFrame:
-    """Load candles from CSV, tolerating MT4/MT5 export quirks
-    (BOM, capitalised headers, 'Date' column, dotted datetimes, volume)."""
+    """Load candles from CSV, tolerating common export quirks: MT4/MT5
+    (BOM, capitalised headers, 'Date' column, dotted datetimes, volume) and
+    Finam/HistData style (<TICKER>,<PER>,<DATE>,<TIME>,... with split
+    date/time columns)."""
     df = pd.read_csv(path, encoding="utf-8-sig")
-    df.columns = [c.strip().lower() for c in df.columns]
-    if "time" not in df.columns and "date" in df.columns:
+    df.columns = [c.strip().lower().strip("<>") for c in df.columns]
+    if "time" in df.columns and "date" in df.columns:
+        # split date/time columns (e.g. 20170101 + 211000)
+        df["time"] = pd.to_datetime(
+            df["date"].astype(str).str.zfill(8)
+            + df["time"].astype(str).str.zfill(6),
+            format="%Y%m%d%H%M%S",
+        )
+    elif "time" not in df.columns and "date" in df.columns:
         df = df.rename(columns={"date": "time"})
     missing = {"time", "open", "high", "low", "close"} - set(df.columns)
     if missing:
         raise SystemExit(f"CSV is missing columns: {sorted(missing)}")
-    try:
-        df["time"] = pd.to_datetime(df["time"], format="%Y.%m.%d %H:%M")
-    except ValueError:
-        df["time"] = pd.to_datetime(df["time"])
+    if not pd.api.types.is_datetime64_any_dtype(df["time"]):
+        try:
+            df["time"] = pd.to_datetime(df["time"], format="%Y.%m.%d %H:%M")
+        except ValueError:
+            df["time"] = pd.to_datetime(df["time"])
     return (
         df[["time", "open", "high", "low", "close"]]
         .dropna()
